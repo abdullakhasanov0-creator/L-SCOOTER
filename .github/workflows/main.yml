@@ -1,0 +1,46 @@
+name: Build APK
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare project
+        run: |
+          Z=$(find . -iname '*.zip' -not -path './proj/*' | head -1)
+          if [ -n "$Z" ]; then
+            echo "Using zip: $Z"
+            unzip -q "$Z" -d proj
+          elif [ -f settings.gradle.kts ]; then
+            echo "Using files from repository root"
+            mkdir proj
+            tar --exclude=./proj --exclude=./.git -cf - . | tar -xf - -C proj
+          else
+            echo "NO PROJECT FILES"; ls -R; exit 1
+          fi
+          S=$(find proj -name settings.gradle.kts | head -1)
+          echo "PROJ=$(dirname "$S")" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Accept Android licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+      - name: Unit tests (do not block the APK)
+        continue-on-error: true
+        run: gradle --no-daemon testDebugUnitTest
+        working-directory: ${{ env.PROJ }}
+      - name: Build debug APK
+        run: gradle --no-daemon assembleDebug
+        working-directory: ${{ env.PROJ }}
+      - name: Name the APK
+        run: cp "${{ env.PROJ }}/app/build/outputs/apk/debug/app-debug.apk" E-scooter-App-1.00.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: E-scooter-App-1.00
+          path: E-scooter-App-1.00.apk
